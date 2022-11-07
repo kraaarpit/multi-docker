@@ -1,0 +1,127 @@
+version: 2.1
+
+
+.container_executor: &container_executor
+  docker:
+    - image: cimg/base:2022.06
+      auth:
+        username: $DOCKERHUB_USERNAME
+        password: $DOCKERHUB_PASSWORD 
+
+.directory: &directory
+  working_directory: ~/workspace
+
+jobs:
+  checkout-code:
+    <<: *container_executor
+    <<: *directory
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 20.10.14
+          docker_layer_caching: true
+      - persist_to_workspace:
+          root: ~/
+          paths:
+            - workspace
+
+  test:
+    <<: *container_executor
+    <<: *directory
+    steps:
+      - setup_remote_docker:
+         version: 20.10.18
+      - attach_workspace:
+          at: ~/
+      - run: 
+         name: docker_test
+         command: |
+            ls
+            docker build -t kraaarpit/multi-client -f ./client/Dockerfile.dev .
+            docker run -e CI=true kraaarpit/multi-client npm run test
+
+  # build-image:
+  #   <<: *container_executor
+  #   <<: *directory
+  #   steps:
+  #     - setup_remote_docker:
+  #        version: 20.10.14
+  #     - attach_workspace:
+  #         at: ~/
+  #     - run: 
+  #         name: docker_build
+  #         command: |
+  #           echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USERNAME —-password-stdin
+  #           # docker build -t kraaarpit/multi-client ./client
+  #           docker build -t kraaarpit/multi-nginx ./nginx
+  #           # docker build -t kraaarpit/multi-server ./server
+  #           # docker build -t kraaarpit/multi-worker ./worker
+  #           # docker push kraaarpit/multi-client
+  #           docker push kraaarpit/multi-nginx
+  #           # docker push kraaarpit/multi-server
+  #           # docker push kraaarpit/multi-worker
+
+  build:
+    <<: *directory
+    docker:
+      - image: cimg/go:1.17
+        auth:
+          username: $DOCKERHUB_USERNAME
+          password: $DOCKERHUB_PASSWORD  # context / project UI env-var reference
+    steps:
+      - attach_workspace:
+          at: ~/ 
+      - setup_remote_docker:
+          version: 20.10.14
+          docker_layer_caching: true
+      # ... steps for building/testing app ...
+
+      # build and push Docker image
+      - run: |
+          TAG=0.1.$CIRCLE_BUILD_NUM
+          docker build -t kraaarpit/multi-client ./client
+          docker build -t kraaarpit/multi-nginx ./nginx
+          docker build -t kraaarpit/multi-server ./server
+          docker build -t kraaarpit/multi-worker ./worker
+          echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USERNAME --password-stdin
+          docker push kraaarpit/multi-client
+          docker push kraaarpit/multi-nginx
+          docker push kraaarpit/multi-server
+          docker push kraaarpit/multi-worker
+
+  deploy:
+    <<: *container_executor
+    <<: *directory
+    steps:
+      - setup_remote_docker:
+         version: 20.10.14
+      - attach_workspace:
+          at: ~/
+      - run: 
+         name: Installing Deployemnt dependencies
+         command: |
+            sudo apt-get -y -qq update
+            sudo apt-get install python3-pip python-dev build-essential
+            sudo pip install --upgrade setuptools
+            sudo pip install awsebcli --upgrade
+      - run: 
+         name: Deploying
+         command: |
+            eb deploy Multidocker-env
+
+
+workflows:
+  build_and_test:
+    jobs:
+      - checkout-code   
+      - build:
+          requires:
+           - checkout-code
+      - deploy:
+          context: aws
+          requires:
+            - build
+          filters:
+            branches:
+              only:
+                - main
