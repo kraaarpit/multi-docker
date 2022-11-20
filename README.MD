@@ -21,4 +21,10 @@ It will start app in localhost:5030
 
 It is done in feature branch : https://github.com/kraaarpit/multi-docker/tree/docker-elastic-beanstalk
 
-This branch will also make use of kubernetes for same project
+Main branch is now using kubernetes.
+
+#### Kubernetes
+
+Run below command to create Secret Object imperatively in kubectl
+
+`kubectl create secret generic pgpassword --from-literal PGPASSWORD=12345asdf`
